@@ -1,0 +1,202 @@
+#include <Arduino.h>
+
+#include <Arduino.h>
+#include <HardwareSerial.h>
+
+int HC12_BAUD_RATE = 9600;
+#define HC12_SET_PIN 2
+HardwareSerial HC12(2); // UART2: RX2=16, TX2=17
+
+void enterHC12ATMode()
+{
+    pinMode(HC12_SET_PIN, OUTPUT);
+    digitalWrite(HC12_SET_PIN, LOW);
+    delay(50);
+}
+
+void exitHC12ATMode()
+{
+    digitalWrite(HC12_SET_PIN, HIGH);
+    delay(100);
+}
+
+void configureHC12()
+{
+    // 自动检测HC-12当前波特率：对常见波特率循环，每个波特率发送10次AT命令检测响应
+    const int baudRates[] = {1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200};
+    const int numRates = sizeof(baudRates) / sizeof(baudRates[0]);
+    int foundBaud = -1;
+
+    for (int i = 0; i < numRates && foundBaud < 0; i++)
+    {
+        int rate = baudRates[i];
+        Serial.print("[HC12 DETECT] Trying baud: ");
+        Serial.println(rate);
+
+        // 切换UART到候选波特率并进入AT模式
+        HC12.begin(rate, SERIAL_8N1, 16, 17);
+        delay(50);
+        enterHC12ATMode();
+        delay(50);
+
+        // 清空接收缓冲
+        while (HC12.available())
+            HC12.read();
+
+        // 每个波特率只发送一次AT包检测响应
+        bool ok = false;
+        HC12.print("AT\r\n");
+        HC12.flush();
+        unsigned long start = millis();
+        String resp = "";
+        while (millis() - start < 200)
+        {
+            if (HC12.available())
+            {
+                char c = HC12.read();
+                if (c != '\r' && c != '\n')
+                    resp += c;
+            }
+        }
+        resp.trim();
+        if (resp.length() > 0)
+        {
+            Serial.print("[HC12 DETECT] Resp: ");
+            Serial.println(resp);
+            if (resp.indexOf("OK") >= 0 || resp.indexOf("ok") >= 0)
+            {
+                ok = true;
+            }
+        }
+
+        exitHC12ATMode();
+        delay(80);
+
+        if (ok)
+        {
+            HC12_BAUD_RATE = rate;
+            Serial.print("[HC12 DETECT] Found working baud: ");
+            Serial.println(HC12_BAUD_RATE);
+            break;
+        }
+        else
+        {
+            Serial.println("[HC12 DETECT] No response at this baud");
+        }
+    }
+
+    // 如果未检测到，则回到默认波特率并返回
+    if (HC12_BAUD_RATE < 0)
+    {
+        Serial.println("[HC12 DETECT] 未检测到可用波特率，使用默认设置。");
+        HC12.begin(HC12_BAUD_RATE, SERIAL_8N1, 16, 17);
+        return;
+    }
+
+    // 使用检测到的波特率进入AT模式进行最终配置
+    HC12.begin(HC12_BAUD_RATE, SERIAL_8N1, 16, 17);
+    enterHC12ATMode();
+    delay(50);
+
+    Serial.println("[HC12 CONFIG] Applying target configuration...");
+    // // 可选：恢复出厂
+    // HC12.print("AT+DEFAULT\r\n");
+    // delay(500);
+    HC12.print("AT+B38400\r\n");
+    delay(200);
+    HC12.print("AT+C039\r\n");
+    delay(200);
+    HC12.print("AT+FU3\r\n");
+    delay(200);
+    HC12.print("AT+P8\r\n");
+    delay(200);
+    HC12.print("AT+RX\r\n");
+    delay(500);
+
+    exitHC12ATMode();
+    HC12.begin(HC12_BAUD_RATE, SERIAL_8N1, 16, 17);
+    delay(100);
+}
+
+void setup()
+{
+    Serial.begin(115200);
+    delay(2000);
+    Serial.println("HC-12 明文测试程序 (ESP32)");
+    pinMode(HC12_SET_PIN, OUTPUT);
+    digitalWrite(HC12_SET_PIN, HIGH);
+    HC12.begin(HC12_BAUD_RATE, SERIAL_8N1, 16, 17);
+    delay(100);
+    configureHC12();
+    Serial.println("请输入要发送的明文内容，回车发送。");
+}
+
+void loop()
+{
+    // 监听接收
+    if (HC12.available())
+    {
+        String msg = HC12.readStringUntil('\n');
+        msg.trim();
+        if (msg.length() > 0)
+        {
+            Serial.print("[RECV] ");
+            Serial.println(msg);
+        }
+    }
+    // 发送（串口输入）
+    if (Serial.available())
+    {
+        String sendMsg = Serial.readStringUntil('\n');
+        sendMsg.trim();
+        if (sendMsg.length() > 0)
+        {
+            String upper = sendMsg;
+            upper.toUpperCase();
+            // 如果包含AT命令，自动进入AT模式并发送，读取响应后退出AT模式
+            if (upper.indexOf("AT") >= 0)
+            {
+                Serial.println("[AT MODE] Detected 'AT' in input. Entering AT mode...");
+                // 进入AT模式
+                enterHC12ATMode();
+                // 确保串口以当前波特率打开
+                HC12.begin(HC12_BAUD_RATE, SERIAL_8N1, 16, 17);
+                delay(50);
+
+                // 发送命令并读取响应
+                HC12.print(sendMsg + "\r\n");
+                HC12.flush();
+                unsigned long start = millis();
+                String resp = "";
+                while (millis() - start < 800)
+                {
+                    while (HC12.available())
+                    {
+                        char c = HC12.read();
+                        resp += c;
+                    }
+                    if (resp.length() > 0)
+                        break;
+                    delay(10);
+                }
+
+                resp.trim();
+                Serial.print("[AT RESP] ");
+                Serial.println(resp);
+
+                // 退出AT模式
+                exitHC12ATMode();
+                // 恢复串口
+                HC12.begin(HC12_BAUD_RATE, SERIAL_8N1, 16, 17);
+                delay(50);
+            }
+            else
+            {
+                HC12.print(sendMsg + "\r\n");
+                Serial.print("[SEND] ");
+                Serial.println(sendMsg);
+            }
+        }
+    }
+    delay(10);
+}
