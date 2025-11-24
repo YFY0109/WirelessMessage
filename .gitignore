@@ -3,3 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# config.h为根据项目实际情况自定义的配置文件，包含引脚定义和其他配置选项
+# 需要复制config_template.h为config.h，并根据需要进行修改
+src/config.h
