@@ -1,19 +1,42 @@
-- name: PlatformIO Run
-  uses: karniv00l/platformio-run-action@v1.1.2
-  with:
-    # 构建名为 'esp32dev' 和 'native' 的环境
-    environments: esp32dev, native
-    # 运行 'build' 和 'upload' 目标
-    targets: build, upload
-    # 指定项目在 'src/iot-device' 目录下
-    project-dir: src/iot-device
-    # 使用这个自定义配置文件
-    project-conf: platformio_custom.ini
-    # 使用4个并行任务进行构建
-    jobs: 4
-    # 静默模式，不显示进度条
-    silent: false
-    # 显示详细日志
-    verbose: true
-    # 禁用自动清理
-    disable-auto-clean: true
+# 1. 文件不能以列表 (-) 开头，必须以 "name:" 开头
+name: My CI/CD Pipeline
+
+# 2. 定义在什么事件下触发工作流
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# 3. 定义环境变量 (可选)
+env:
+  NODE_VERSION: '18.x'
+
+# 4. 定义一个或多个任务
+jobs:
+  build-and-test:
+    # 运行在什么类型的虚拟机上
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 检出代码仓库
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. 设置 Python 环境
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.NODE_VERSION }}
+
+      # 3. 这里是您之前提供的 PlatformIO 步骤
+      - name: PlatformIO Run
+        uses: karniv00l/platformio-run-action@v1.1.2
+        with:
+          # Process specified environments (comma separated).
+          environments: esp32dev # 示例：指定一个环境
+          # Process specified targets (comma separated).
+          targets: build, upload # 示例：指定多个目标
+          # Specify the path to project directory. By default, project-dir is equal to current working directory (CWD).
+          project-dir: . # 示例：指定当前目录
+          # 其他参数...
