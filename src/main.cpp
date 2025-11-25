@@ -11,6 +11,7 @@
 
 #include <Arduino.h>
 #include "debug.h" // 调试接口，注释掉可关闭所有调试输出
+#include "config.h"
 
 // 硬件交互相关库
 #include <Keypad.h>
@@ -29,24 +30,13 @@
 #include <algorithm>
 #include <cstring>
 
-// 配置文件
-#include "config.h"
-
-// --- HC-12 模块初始化 ---
+// HC-12 module instance
 HC12Module hc12;
 
-// --- OLED显示屏设置 ---
-// 使用硬件I2C。自定义I2C引脚：SDA=D22，SCL=D23。
-// 构造函数指定SCL和SDA引脚，适用于自定义接线。
-U8G2_SSD1315_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE, /* clock=*/SSD1315_SCL_PIN, /* data=*/SSD1315_SDA_PIN);
+// OLED实例：使用 config 中定义的 I2C 引脚
+U8G2_SSD1315_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE, /* clock=*/I2C_SCL_PIN, /* data=*/I2C_SDA_PIN);
 
-// --- 键盘设置 ---
-char keys[ROWS][COLS] = {
-    {'1', '2', '3', 'A'}, // 'A' for CHS/ENG switch
-    {'4', '5', '6', 'B'}, // 'B' for NUM/Letter switch
-    {'7', '8', '9', 'C'}, // 'C' for Delete
-    {'*', '0', '#', 'D'}  // '*' for Prev Cand, '#' for Next Cand, 'D' for Send/Confirm
-};
+// 键盘设置在 `config.h`/`config.cpp` 中集中定义
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
 // 输入法子模块
@@ -63,40 +53,32 @@ void handleSerialConsoleInput();
 
 // 显示刷新节拍
 unsigned long lastDisplayUpdate = 0;
-const unsigned long DISPLAY_INTERVAL = 80; // ms
 
-// 空闲/省电设置
-const unsigned long IDLE_TIMEOUT_MS = 120000; // 2 分钟无操作进入省电（可按需调整）
-unsigned long lastActivityTime = 0;           // 上次交互时间
+// 空闲/省电设置 (默认配置在 `config.h`)
+unsigned long lastActivityTime = 0; // 上次交互时间
 bool lowPowerMode = false;
-const unsigned long SLEEP_DISPLAY_INTERVAL = 1000; // 省电时屏幕更新间隔（降低频率）
 
 // 接收消息临时缓冲与显示计时
 String incomingMessage = "";
 unsigned long incomingMessageTime = 0;
-const unsigned long INCOMING_MSG_DISPLAY_MS = 3000;
 
 // 发送/接收 模式切换：recvMode = true 表示聊天/接收模式，记录历史；false 表示发送模式，收到消息为短暂提示
 bool recvMode = false;
 std::vector<String> messageHistory; // 存储接收/发送历史（简化为 String 列表）
 // 可配置的历史上限（RCV 设置中可调整并可持久化）
-size_t maxMessageHistory = 50;
+size_t maxMessageHistory = DEFAULT_MAX_MESSAGE_HISTORY;
 // 聊天分页：chatPage=0 表示最新（最靠近尾部）的页面
 int chatPage = 0;
 // 每页聊天消息数（RCV 模式可配置）
-int chatPageSize = 3;
+int chatPageSize = DEFAULT_CHAT_PAGE_SIZE;
 // 聊天翻页长按支持
 int chatNavDir = 0;            // +1 向更早页（older），-1 向更新页（newer）
 unsigned long chatNavLast = 0; // 上次执行翻页或按下时间
 char lastChatNavKey = 0;
-const unsigned long CHAT_NAV_INITIAL_DELAY = 500;   // ms 首次长按延迟
-const unsigned long CHAT_NAV_REPEAT = 120;          // ms 重复间隔
-const unsigned long CHAT_NAV_JUMP_THRESHOLD = 1500; // ms 长按阈值，跳到最早/最新
 
 // 跳转确认提示
 String chatJumpMsg = "";
 unsigned long chatJumpMsgTime = 0;
-const unsigned long CHAT_JUMP_MSG_MS = 900; // 提示显示时长
 
 // RCV 设置相关（通过在接收模式下连续按 '*' '#' 进入）
 bool inRcvSettings = false;
@@ -106,11 +88,8 @@ bool rcvPersist = false; // 是否写入文件持久化消息历史
 // 快捷按键检测（在 recvMode 下连续按 '*' '#' 触发进入 RCV 设置）
 char lastRecvShortcut = 0; // 0/ '*' / '#'
 unsigned long lastRecvShortcutTime = 0;
-const unsigned long RECV_SHORTCUT_WINDOW = 1200; // ms 内连续按键窗口
 
-// 持久化文件路径
-const char *HISTORY_FILE = "/history.txt";
-const char *SETTINGS_FILE = "/rcv_settings.txt";
+// 持久化文件路径在 config.h/config.cpp 中定义 (HISTORY_FILE, SETTINGS_FILE)
 
 // 简单 UTF-8 验证：尝试判断字符串是否为合理的 UTF-8（非严格，但能过滤大量乱码）
 bool looksLikeUtf8(const String &s)
@@ -252,54 +231,24 @@ bool engUppercase = false; // ENG 模式是否为大写
 bool symbolMode = false;   // NUM 模式下是否显示特殊符号
 
 // 符号多次按键支持（SYM 模式）
-char lastSymbolKey = 0;                   // 上一次用于符号选择的按键
-unsigned long lastSymbolTime = 0;         // 上一次按键时间
-int lastSymbolIndex = 0;                  // 在 specialMap 中的索引（循环选择）
-const unsigned long SYMBOL_TIMEOUT = 800; // ms，多次按键超时
+char lastSymbolKey = 0;           // 上一次用于符号选择的按键
+unsigned long lastSymbolTime = 0; // 上一次按键时间
+int lastSymbolIndex = 0;          // 在 specialMap 中的索引（循环选择）
+// SYMBOL_TIMEOUT moved to config.h
 
 // 1键单击/双击(显示对应表)支持
 char lastOneKey = 0;
 unsigned long lastOneTime = 0;
 bool showKeymap = false;
 unsigned long keymapShowTime = 0;
-const unsigned long KEYMAP_DISPLAY_MS = 3000;
+// KEYMAP_DISPLAY_MS moved to config.h
 
 // --- HC-12 设置界面状态 ---
 bool inSettings = false; // 是否进入 HC-12 设置界面
 int settingsIndex = 0;   // 当前在设置菜单的索引
 String settingsMsg = ""; // 设置操作返回信息，短暂显示
 unsigned long settingsMsgTime = 0;
-const unsigned long SETTINGS_MSG_MS = 1500;
-
-const char *settingsMenu[] = {
-    "Get Version",
-    "Get All Params",
-    "Get Baud",
-    "Set Baud",
-    "Get Channel",
-    "Set Channel",
-    "Get Mode",
-    "Set Mode",
-    "Get Power",
-    "Set Power",
-    "Sleep",
-    "Factory Reset",
-    "Exit"};
-const int SETTINGS_MENU_COUNT = sizeof(settingsMenu) / sizeof(settingsMenu[0]);
-
-// 特殊符号映射（NUM 模式下 B 切换时使用）
-const char *specialMap[10] = {
-    " ",
-    "~",     // 1 一般不使用但保留
-    "!@#",   // 2 -> 举例
-    "#$%",   // 3
-    "^&*",   // 4
-    "()_+",  // 5
-    "-=[]",  // 6
-    "{};:'", // 7
-    "<>,.?", // 8
-    "+/\\|"  // 9
-};
+// SETTINGS_MSG_MS, settingsMenu and specialMap moved to config.h/config.cpp
 
 // 自动检测 HC-12 当前波特率并配置本地串口（对常见波特率循环发送 AT 检测响应）
 void configureHC12()

@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include <algorithm>
 #include "debug.h"
+#include "config.h"
 
 // 全局状态定义
 InputMode inputMode = MODE_CHS;
@@ -14,33 +15,7 @@ int candidateIndex = 0;         // Current selected candidate index
 std::vector<String> candidates; // List of character candidates
 bool composing = false;         // True if in Pinyin composition mode
 
-// 九宫格映射（数字 -> T9英文字符）
-const char *keymap[10] = {
-    "",     // 0
-    "",     // 1
-    "abc",  // 2
-    "def",  // 3
-    "ghi",  // 4
-    "jkl",  // 5
-    "mno",  // 6
-    "pqrs", // 7
-    "tuv",  // 8
-    "wxyz"  // 9
-};
-
-// T9数字键到拼音字母映射（用于中文输入）
-const char *pinyinKeymap[10] = {
-    "",     // 0 - 空格或确认
-    "",     // 1 - 不使用
-    "abc",  // 2
-    "def",  // 3
-    "ghi",  // 4
-    "jkl",  // 5
-    "mno",  // 6
-    "pqrs", // 7
-    "tuv",  // 8
-    "wxyz"  // 9
-};
+// keymap and pinyinKeymap are defined in config.cpp and declared in config.h
 
 // 拼音转汉字映射（外部大词库，开机时加载）
 std::map<String, std::vector<String>> py2hz;
@@ -56,9 +31,7 @@ char lastStarKey = 0;
 unsigned long lastStarTime = 0;
 
 // 自动学习功能相关变量
-std::map<String, int> charFrequency;       // 字符使用频率统计
-const String FREQ_FILE = "/frequency.txt"; // 频率数据文件
-const int MAX_FREQ_ENTRIES = 500;          // 最大频率记录数量
+std::map<String, int> charFrequency; // 字符使用频率统计
 
 // 拼音字典加载
 void loadPinyinDict()

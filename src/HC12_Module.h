@@ -9,9 +9,6 @@
 #include <Arduino.h>
 #include <HardwareSerial.h>
 
-// 配置文件
-#include "config.h"
-
 class HC12Module
 {
 public:
@@ -22,7 +19,7 @@ public:
     };
 
     // 初始化函数
-    bool init(int setPin, int uartNum = HC12_UART_NUM, int rxPin = HC12_RX_PIN, int txPin = HC12_TX_PIN, int baudRate = HC12_BAUD_RATE);
+    bool init(int setPin, int uartNum = 2, int rxPin = 16, int txPin = 17, int baudRate = 9600);
 
     // 模式控制
     void setMode(Mode mode);
