@@ -10,6 +10,14 @@
 #include <String.h>
 #include "HC12_Module.h"
 
+// 定义路由条目结构体，使其在全局范围内可见
+struct RouteEntry
+{
+    String dest;
+    uint16_t metric;
+    unsigned long lastSeen; // millis()
+};
+
 // 初始化 RIP 模块（定时器、路由表）
 void ripInit();
 
@@ -24,6 +32,16 @@ void ripSendUpdate();
 
 // 查询当前路由表的摘要（用于 UI/调试）
 String ripGetRoutesSummary();
+
+// 新增函数声明
+// 获取所有路由的详细信息
+std::vector<RouteEntry> ripFetchAllRoutes();
+
+// 清空路由表
+void ripClearRoutes();
+
+// 手动删除特定路由
+bool ripRemoveRoute(const String &dest);
 
 // 限制条目数
 const size_t RIP_MAX_ROUTES = 64;
@@ -45,6 +63,7 @@ extern HC12Module hc12;
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <string>
 
 namespace wm
 {

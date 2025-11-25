@@ -4,13 +4,6 @@
 #include "rip.h"
 #include <esp_system.h>
 
-struct RouteEntry
-{
-    String dest;
-    uint16_t metric;
-    unsigned long lastSeen; // millis()
-};
-
 static std::vector<RouteEntry> routeTable;
 static const unsigned long ROUTE_TIMEOUT_MS = 30000;   // 30s 未见则失效
 static const unsigned long UPDATE_INTERVAL_MS = 10000; // 10s 周期发送
@@ -171,4 +164,35 @@ String ripGetRoutesSummary()
         s += String(e.metric);
     }
     return s;
+}
+
+// 添加对 RIP 功能的完整实现
+
+// 定义一个函数，用于从路由表中获取所有路由的详细信息
+std::vector<RouteEntry> ripFetchAllRoutes()
+{
+    return routeTable;
+}
+
+// 定义一个函数，用于清空路由表（调试或重置时使用）
+void ripClearRoutes()
+{
+    routeTable.clear();
+    Serial.println("RIP: Route table cleared.");
+}
+
+// 定义一个函数，用于手动删除特定路由
+bool ripRemoveRoute(const String &dest)
+{
+    for (int i = 0; i < routeTable.size(); ++i)
+    {
+        if (routeTable[i].dest == dest)
+        {
+            routeTable.erase(routeTable.begin() + i);
+            Serial.print("RIP: Removed route to ");
+            Serial.println(dest);
+            return true;
+        }
+    }
+    return false;
 }
