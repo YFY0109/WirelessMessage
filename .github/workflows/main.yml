@@ -1,22 +1,19 @@
-            - name: PlatformIO Run
-  # You may pin to the exact commit or the version.
-  # uses: karniv00l/platformio-run-action@e6467e68a40b381568bad448faf0a1413c72fc7f
+- name: PlatformIO Run
   uses: karniv00l/platformio-run-action@v1.1.2
   with:
-    # Process specified environments (comma separated).
-    environments: # optional
-    # Process specified targets (comma separated).
-    targets: # optional
-    # Specify the path to project directory. By default, project-dir is equal to current working directory (CWD).
-    project-dir: # optional
-    # Process project with a custom platformio.ini
-    project-conf: # optional
-    # Control a number of parallel build jobs. Default is a number of CPUs in a system.
-    jobs: # optional
-    # Suppress progress reporting.
-    silent: # optional
-    # Shows detailed information when processing environments.
-    verbose: # optional
-    # Disable auto-clean of build_dir when platformio.ini or src_dir (project structure) have been modified.
-    disable-auto-clean: # optional
-          
+    # 构建名为 'esp32dev' 和 'native' 的环境
+    environments: esp32dev, native
+    # 运行 'build' 和 'upload' 目标
+    targets: build, upload
+    # 指定项目在 'src/iot-device' 目录下
+    project-dir: src/iot-device
+    # 使用这个自定义配置文件
+    project-conf: platformio_custom.ini
+    # 使用4个并行任务进行构建
+    jobs: 4
+    # 静默模式，不显示进度条
+    silent: false
+    # 显示详细日志
+    verbose: true
+    # 禁用自动清理
+    disable-auto-clean: true
