@@ -7,7 +7,6 @@
 
 #include <Arduino.h>
 #include <vector>
-#include <String.h>
 #include "HC12_Module.h"
 
 // 定义路由条目结构体，使其在全局范围内可见
