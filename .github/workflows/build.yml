@@ -32,6 +32,7 @@ jobs:
 
       - name: Build esp32-s3-devkitc-1 and capture log
         shell: bash -lc "{0}"
+
         run: |
           set -o pipefail
           pio run -e esp32-s3-devkitc-1 2>&1 | tee build.log
