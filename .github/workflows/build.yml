@@ -30,9 +30,12 @@ jobs:
       - name: Install PlatformIO
         run: python -m pip install --upgrade pip platformio
 
-      - name: Build esp32-s3-devkitc-1 and capture log
-        shell: bash -lc "{0}"
+      - name: Copy template files
+        run: |
+          cp platformio_template.ini platformio.ini
+          cp src/config_template.h src/config.h
 
+      - name: Build esp32-s3-devkitc-1 and capture log
         run: |
           set -o pipefail
           pio run -e esp32-s3-devkitc-1 2>&1 | tee build.log
