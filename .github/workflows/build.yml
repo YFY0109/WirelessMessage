@@ -8,6 +8,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [esp32-s3-devkitc-1, esp32dev]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,27 +39,52 @@ jobs:
           cp platformio_template.ini platformio.ini
           cp src/config_template.h src/config.h
 
-      - name: Build esp32-s3-devkitc-1 and capture log
+      - name: Build ${{ matrix.env }} and capture log
         run: |
           set -o pipefail
-          pio run -e esp32-s3-devkitc-1 2>&1 | tee build.log
+          pio run -e ${{ matrix.env }} 2>&1 | tee build.log
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pio-build-log
+          name: pio-build-log-${{ matrix.env }}
           path: build.log
 
       - name: Upload build artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: pio-build-artifacts
+          name: pio-build-artifacts-${{ matrix.env }}
           path: |
-            .pio/build/esp32-s3-devkitc-1/bootloader.bin
-            .pio/build/esp32-s3-devkitc-1/firmware.bin
-            .pio/build/esp32-s3-devkitc-1/firmware.elf
-            .pio/build/esp32-s3-devkitc-1/firmware.map
-            .pio/build/esp32-s3-devkitc-1/partitions.bin
-        
+            .pio/build/${{ matrix.env }}/bootloader.bin
+            .pio/build/${{ matrix.env }}/firmware.bin
+            .pio/build/${{ matrix.env }}/firmware.elf
+            .pio/build/${{ matrix.env }}/firmware.map
+            .pio/build/${{ matrix.env }}/partitions.bin
+
+      - name: Notify Slack on failure (optional)
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        with:
+          status: custom
+          fields: repo,commit,author,workflow,job,ref,server_url
+          custom_payload: |
+            {"text":"⚠️ Build failed for `${{ matrix.env }}` in `${{ github.repository }}`. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"}
+
+      - name: Create GitHub issue on failure (optional)
+        if: failure()
+        uses: peter-evans/create-issue@v4
+        with:
+          title: "CI: Build failed for ${{ matrix.env }} on commit ${{ github.sha }}"
+          body: |
+            The automated build for environment `${{ matrix.env }}` failed.
+
+            - Repository: `${{ github.repository }}`
+            - Run: ${{ github.run_id }}
+            - Commit: `${{ github.sha }}`
+
+            View the run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          labels: CI-failure
