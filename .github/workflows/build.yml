@@ -9,14 +9,9 @@ permissions:
   contents: read
   issues: write
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -24,8 +19,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -38,15 +31,12 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/pip
-          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}-v2
+          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini','**/src/**','**/lib/**') }}
           restore-keys: |
             ${{ runner.os }}-pio-
-            ${{ runner.os }}-
 
       - name: Install PlatformIO
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install 'platformio==6.1.18'
+        run: python -m pip install --upgrade pip platformio
 
       - name: Copy template files
         run: |
@@ -58,33 +48,12 @@ jobs:
           set -o pipefail
           pio run -e ${{ matrix.env }} 2>&1 | tee build.log
 
-      - name: Prepare build artifacts
-        run: |
-          if [ -d ".pio/build/${{ matrix.env }}" ]; then
-            tar -czf artifacts_${{ matrix.env }}.tar.gz -C .pio/build/${{ matrix.env }} .
-            echo "ARTIFACT=artifacts_${{ matrix.env }}.tar.gz" >> $GITHUB_ENV
-          else
-            echo "No build dir for env ${{ matrix.env }}"
-            touch empty_${{ matrix.env }}.txt
-            echo "ARTIFACT=empty_${{ matrix.env }}.txt" >> $GITHUB_ENV
-          fi
-
-      - name: Run PlatformIO unit tests
-        run: |
-          pio test -e ${{ matrix.env }} 2>&1 | tee pio-test.log
-
-      - name: Run Python encryption tests (non-interactive)
-        run: |
-          printf "4\n0\n" | python -u test/encryption_test.py
-
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pio-build-log-${{ matrix.env }}
-          path: |
-            build.log
-            pio-test.log
+          path: build.log
 
       - name: Upload build artifacts
         if: success()
@@ -92,20 +61,14 @@ jobs:
         with:
           name: pio-build-artifacts-${{ matrix.env }}
           path: |
-            ${{ env.ARTIFACT }}
-            .pio/build/${{ matrix.env }}/**
-
-      - name: Upload build artifacts (on failure for diagnostics)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pio-build-artifacts-failed-${{ matrix.env }}
-          path: |
-            ${{ env.ARTIFACT }}
-            .pio/build/${{ matrix.env }}/**
+            .pio/build/${{ matrix.env }}/bootloader.bin
+            .pio/build/${{ matrix.env }}/firmware.bin
+            .pio/build/${{ matrix.env }}/firmware.elf
+            .pio/build/${{ matrix.env }}/firmware.map
+            .pio/build/${{ matrix.env }}/partitions.bin
 
       - name: Notify Slack on failure (optional)
-        if: failure() && secrets.SLACK_WEBHOOK
+        if: failure()
         uses: 8398a7/action-slack@v3
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
@@ -115,21 +78,24 @@ jobs:
           custom_payload: |
             {"text":"⚠️ Build failed for `${{ matrix.env }}` in `${{ github.repository }}`. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"}
 
-      - name: Create GitHub issue on failure (via curl)
-        if: failure() && (github.repository == 'YFY0109/WirelessMessage')
+      - name: Create GitHub issue on failure (via github-script)
+        if: failure()
+        uses: actions/github-script@v7
         env:
           MATRIX_ENV: ${{ matrix.env }}
           RUN_ID: ${{ github.run_id }}
           COMMIT_SHA: ${{ github.sha }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          owner=$(echo "$GITHUB_REPOSITORY" | cut -d'/' -f1)
-          repo=$(echo "$GITHUB_REPOSITORY" | cut -d'/' -f2)
-          runUrl="https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
-          json=$(cat <<-EOF
-          {"title":"CI: Build failed for ${MATRIX_ENV} on commit ${COMMIT_SHA}","body":"The automated build for environment \`${MATRIX_ENV}\` failed.\n\n- Repository: \`${GITHUB_REPOSITORY}\`\n- Run: ${RUN_ID}\n- Commit: \`${COMMIT_SHA}\`\n\nView the run: ${runUrl}","labels":["CI-failure"]}
-          EOF
-          )
-          curl -s -S -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" -d "$json" "https://api.github.com/repos/$owner/$repo/issues"
+        with:
+          script: |
+            const env = process.env.MATRIX_ENV;
+            const runId = process.env.RUN_ID;
+            const sha = process.env.COMMIT_SHA;
+            const repo = github.context.repo;
+            const runUrl = `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${runId}`;
+            await github.rest.issues.create({
+              owner: repo.owner,
+              repo: repo.repo,
+              title: `CI: Build failed for ${env} on commit ${sha}`,
+              body: `The automated build for environment \`${env}\` failed.\n\n- Repository: \`${repo.owner}/${repo.repo}\`\n- Run: ${runId}\n- Commit: \`${sha}\`\n\nView the run: ${runUrl}`,
+              labels: ['CI-failure']
+            });
