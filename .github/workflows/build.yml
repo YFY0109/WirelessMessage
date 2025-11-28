@@ -9,9 +9,14 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ matrix.env }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -19,6 +24,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -31,12 +38,13 @@ jobs:
           path: |
             ~/.platformio
             ~/.cache/pip
-          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini','**/src/**','**/lib/**') }}
+          key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}-v2
           restore-keys: |
             ${{ runner.os }}-pio-
+            ${{ runner.os }}-
 
       - name: Install PlatformIO
-        run: python -m pip install --upgrade pip platformio
+        run: python -m pip install --upgrade pip 'platformio>=6.3.0,<7'
 
       - name: Copy template files
         run: |
@@ -48,12 +56,33 @@ jobs:
           set -o pipefail
           pio run -e ${{ matrix.env }} 2>&1 | tee build.log
 
+      - name: Prepare build artifacts
+        run: |
+          if [ -d ".pio/build/${{ matrix.env }}" ]; then
+            tar -czf artifacts_${{ matrix.env }}.tar.gz -C .pio/build/${{ matrix.env }} .
+            echo "ARTIFACT=artifacts_${{ matrix.env }}.tar.gz" >> $GITHUB_ENV
+          else
+            echo "No build dir for env ${{ matrix.env }}"
+            touch empty_${{ matrix.env }}.txt
+            echo "ARTIFACT=empty_${{ matrix.env }}.txt" >> $GITHUB_ENV
+          fi
+
+      - name: Run PlatformIO unit tests
+        run: |
+          pio test -e ${{ matrix.env }} 2>&1 | tee pio-test.log
+
+      - name: Run Python encryption tests (non-interactive)
+        run: |
+          printf "4\n0\n" | python -u test/encryption_test.py
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pio-build-log-${{ matrix.env }}
-          path: build.log
+          path: |
+            build.log
+            pio-test.log
 
       - name: Upload build artifacts
         if: success()
@@ -61,11 +90,17 @@ jobs:
         with:
           name: pio-build-artifacts-${{ matrix.env }}
           path: |
-            .pio/build/${{ matrix.env }}/bootloader.bin
-            .pio/build/${{ matrix.env }}/firmware.bin
-            .pio/build/${{ matrix.env }}/firmware.elf
-            .pio/build/${{ matrix.env }}/firmware.map
-            .pio/build/${{ matrix.env }}/partitions.bin
+            ${{ env.ARTIFACT }}
+            .pio/build/${{ matrix.env }}/**
+
+      - name: Upload build artifacts (on failure for diagnostics)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pio-build-artifacts-failed-${{ matrix.env }}
+          path: |
+            ${{ env.ARTIFACT }}
+            .pio/build/${{ matrix.env }}/**
 
       - name: Notify Slack on failure (optional)
         if: failure()
@@ -79,7 +114,7 @@ jobs:
             {"text":"⚠️ Build failed for `${{ matrix.env }}` in `${{ github.repository }}`. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"}
 
       - name: Create GitHub issue on failure (via github-script)
-        if: failure()
+        if: failure() && (github.repository == 'YFY0109/WirelessMessage')
         uses: actions/github-script@v7
         env:
           MATRIX_ENV: ${{ matrix.env }}
