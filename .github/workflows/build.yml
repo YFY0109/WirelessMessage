@@ -44,7 +44,9 @@ jobs:
             ${{ runner.os }}-
 
       - name: Install PlatformIO
-        run: python -m pip install --upgrade pip 'platformio>=6.3.0,<7'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'platformio==6.1.18'
 
       - name: Copy template files
         run: |
@@ -103,7 +105,7 @@ jobs:
             .pio/build/${{ matrix.env }}/**
 
       - name: Notify Slack on failure (optional)
-        if: failure()
+        if: failure() && secrets.SLACK_WEBHOOK
         uses: 8398a7/action-slack@v3
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
@@ -113,24 +115,21 @@ jobs:
           custom_payload: |
             {"text":"⚠️ Build failed for `${{ matrix.env }}` in `${{ github.repository }}`. <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"}
 
-      - name: Create GitHub issue on failure (via github-script)
+      - name: Create GitHub issue on failure (via curl)
         if: failure() && (github.repository == 'YFY0109/WirelessMessage')
-        uses: actions/github-script@v7
         env:
           MATRIX_ENV: ${{ matrix.env }}
           RUN_ID: ${{ github.run_id }}
           COMMIT_SHA: ${{ github.sha }}
-        with:
-          script: |
-            const env = process.env.MATRIX_ENV;
-            const runId = process.env.RUN_ID;
-            const sha = process.env.COMMIT_SHA;
-            const repo = github.context.repo;
-            const runUrl = `https://github.com/${repo.owner}/${repo.repo}/actions/runs/${runId}`;
-            await github.rest.issues.create({
-              owner: repo.owner,
-              repo: repo.repo,
-              title: `CI: Build failed for ${env} on commit ${sha}`,
-              body: `The automated build for environment \`${env}\` failed.\n\n- Repository: \`${repo.owner}/${repo.repo}\`\n- Run: ${runId}\n- Commit: \`${sha}\`\n\nView the run: ${runUrl}`,
-              labels: ['CI-failure']
-            });
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          owner=$(echo "$GITHUB_REPOSITORY" | cut -d'/' -f1)
+          repo=$(echo "$GITHUB_REPOSITORY" | cut -d'/' -f2)
+          runUrl="https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+          json=$(cat <<-EOF
+          {"title":"CI: Build failed for ${MATRIX_ENV} on commit ${COMMIT_SHA}","body":"The automated build for environment \`${MATRIX_ENV}\` failed.\n\n- Repository: \`${GITHUB_REPOSITORY}\`\n- Run: ${RUN_ID}\n- Commit: \`${COMMIT_SHA}\`\n\nView the run: ${runUrl}","labels":["CI-failure"]}
+          EOF
+          )
+          curl -s -S -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" -d "$json" "https://api.github.com/repos/$owner/$repo/issues"
